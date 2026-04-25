@@ -906,26 +906,37 @@ async function fbLoadAll(){
   try{
     if(!window._db)return;
     const {collection,getDocs,doc,getDoc}=window._fsHelpers;
-    // Sync users
+    // ── Sync users ──
+    // REGLE CRITIQUE: ne jamais ecraser un user non-verifie (en attente de code)
     const uSnap=await getDocs(collection(window._db,'users'));
     if(!uSnap.empty){
       const fbUsers=[];uSnap.forEach(d=>fbUsers.push(d.data()));
-      // Merge: Firebase is source of truth
       const local=getUsers();
-      const merged=[...fbUsers];
-      local.forEach(lu=>{if(!merged.find(u=>u.id===lu.id))merged.push(lu);});
+      const merged=[...local]; // local est la base
+      fbUsers.forEach(fu=>{
+        const lidx=merged.findIndex(u=>u.id===fu.id);
+        if(lidx===-1){
+          merged.push(fu);
+        } else {
+          const lu=merged[lidx];
+          // Si le user local est en cours de verification email → NE PAS toucher (code frais)
+          if(!lu.emailVerified && lu.emailVerifyCode){ return; }
+          // Sinon Firebase gagne mais on preserve le code local
+          merged[lidx]={...fu, emailVerifyCode:lu.emailVerifyCode||fu.emailVerifyCode};
+        }
+      });
       saveUsers(merged);
     }
-    // Sync transactions
+    // ── Sync transactions ──
     const tSnap=await getDocs(collection(window._db,'transactions'));
     if(!tSnap.empty){
       const fbTxs=[];tSnap.forEach(d=>fbTxs.push(d.data()));
       const local=getTransactions();
-      const merged=[...fbTxs];
-      local.forEach(lt=>{if(!merged.find(t=>t.id===lt.id))merged.push(lt);});
+      const merged=[...local];
+      fbTxs.forEach(ft=>{if(!merged.find(t=>t.id===ft.id))merged.push(ft);});
       saveTransactions(merged);
     }
-    // Sync plans
+    // ── Sync plans ──
     const pSnap=await getDoc(doc(window._db,'config','plans'));
     if(pSnap.exists()&&pSnap.data().plans){savePlans(pSnap.data().plans);}
     console.log('[Firebase] Synchronisation OK');
@@ -1095,58 +1106,127 @@ async function handleRegister(){
   const regBtn=document.querySelector('#registerModal .btn-gold');
   if(regBtn){regBtn.innerHTML='<span class="spinner"></span> Envoi du code...';regBtn.disabled=true;}
 
-  const code=genCode();
-  const newUser={id:genId(),firstname:fn,lastname:ln,email:em,phone:ph,password:pw,
-    refCode:'IF-'+genId().substr(0,8),balance:0,totalWithdrawn:0,plans:[],
-    kyc:'pending',emailVerified:false,emailVerifyCode:code,
-    referrerId,referrals:[],affiliateBonus:0,createdAt:Date.now(),role:'user',lastBonusDate:null,pendingBonus:0};
-  users.push(newUser);saveUsers(users);setCurrentUser(newUser);
-  // Firebase sync
-  fbSaveUser(newUser);
+  const code = genCode();
+  const newUser = {
+    id: genId(), firstname: fn, lastname: ln, email: em, phone: ph, password: pw,
+    refCode: 'IF-' + genId().substr(0,8),
+    balance: 0, totalWithdrawn: 0, plans: [],
+    kyc: 'pending', emailVerified: false, emailVerifyCode: code,
+    referrerId, referrals: [], affiliateBonus: 0,
+    createdAt: Date.now(), role: 'user', lastBonusDate: null, pendingBonus: 0
+  };
 
-  // Send real email via EmailJS
-  const sent = await sendEmail('verification', em, fn+' '+ln, {code});
-  if(regBtn){regBtn.innerHTML='<i class="fa fa-user-plus"></i> S\'inscrire gratuitement';regBtn.disabled=false;}
+  // ETAPE 1 — Sauvegarder en localStorage
+  users.push(newUser);
+  saveUsers(users);
+
+  // ETAPE 2 — Mettre en session avec le code frais (SOURCE DE VERITE)
+  // Doit être fait AVANT tout appel async pour éviter toute désynchronisation
+  setCurrentUser(newUser);
+
+  // ETAPE 3 — Fermer l'inscription et ouvrir la vérification
+  closeModal('registerModal');
+  openModal('emailVerifyModal');
+
+  // ETAPE 4 — Envoyer l'email (async, après ouverture du modal)
+  const sent = await sendEmail('verification', em, fn + ' ' + ln, {code});
+  if(regBtn){ regBtn.innerHTML = '<i class="fa fa-user-plus"></i> S\'inscrire gratuitement'; regBtn.disabled = false; }
 
   if(sent){
-    showToast(`Code de vérification envoyé à ${em} ✉️`,'success');
+    showToast('Code envoyé à ' + em + ' ✉️ — Vérifiez votre boîte mail', 'success');
   } else {
-    showToast(`Code: ${code} (EmailJS indisponible, notez ce code)`,'warning');
-    // Show code in verify modal as fallback
-    setTimeout(()=>{const el=document.getElementById('emailVerifyCode');if(el)el.placeholder=`Code: ${code}`;},500);
+    // Fallback: afficher le code directement
+    showToast('Email non disponible — Code: ' + code, 'warning');
+    setTimeout(() => {
+      const el = document.getElementById('emailVerifyCode');
+      if(el){ el.value = code; el.style.borderColor = 'var(--gold)'; }
+      showAlert('emailVerifyAlert', '📋 Code affiché (email indisponible) : ' + code, 'info');
+    }, 300);
   }
-  closeModal('registerModal');openModal('emailVerifyModal');
+
+  // ETAPE 5 — Firebase sync en arrière-plan (délai pour ne pas interférer)
+  setTimeout(() => fbSaveUser(newUser), 2000);
 }
 
 function verifyEmail(){
-  const code=document.getElementById('emailVerifyCode').value.trim();
-  const cu=getCurrentUser();if(!cu)return;
-  const users=getUsers();const idx=users.findIndex(u=>u.id===cu.id);if(idx===-1)return;
-  if(users[idx].emailVerifyCode!==code)return showAlert('emailVerifyAlert','Code incorrect. Réessayez.');
-  users[idx].emailVerified=true;users[idx].kyc='email_verified';
-  if(users[idx].referrerId){
-    const ridx=users.findIndex(u=>u.id===users[idx].referrerId);
-    if(ridx!==-1){
-      users[ridx].balance=(users[ridx].balance||0)+AFFILIATE_BONUS;
-      users[ridx].affiliateBonus=(users[ridx].affiliateBonus||0)+AFFILIATE_BONUS;
-      users[ridx].referrals=users[ridx].referrals||[];
-      users[ridx].referrals.push(users[idx].id);
-      addTransaction(users[ridx].id,'affiliate',AFFILIATE_BONUS,'approved',`Parrainage: ${users[idx].firstname} ${users[idx].lastname}`);
-    }
+  const enteredCode=document.getElementById('emailVerifyCode').value.trim();
+  if(!enteredCode||enteredCode.length!==6)return showAlert('emailVerifyAlert','Entrez le code à 6 chiffres reçu par email.');
+
+  // SOURCE DE VERITE: sessionStorage (contient le user avec le code frais, jamais écrasé)
+  const cu=getCurrentUser();
+  if(!cu)return showAlert('emailVerifyAlert','Session expirée. Veuillez vous réinscrire.');
+
+  // Le code de référence est celui stocké dans la session (non pollué par Firebase)
+  const expectedCode = cu.emailVerifyCode;
+  if(!expectedCode)return showAlert('emailVerifyAlert','Aucun code en attente. Cliquez sur "Renvoyer le code".');
+  if(enteredCode !== expectedCode){
+    return showAlert('emailVerifyAlert','Code incorrect. Vérifiez votre email ou cliquez sur "Renvoyer le code".');
   }
-  saveUsers(users);setCurrentUser(users[idx]);
-  closeModal('emailVerifyModal');showToast('Email vérifié !','success');
-  loadDashboard();showPage('dashboard');
+
+  // Code correct → mettre à jour localStorage ET session
+  const users=getUsers();const idx=users.findIndex(u=>u.id===cu.id);
+  if(idx===-1){
+    // user pas encore dans localStorage (race condition) → le créer depuis session
+    const updatedUser={...cu,emailVerified:true,kyc:'email_verified'};
+    users.push(updatedUser);saveUsers(users);setCurrentUser(updatedUser);
+  } else {
+    users[idx].emailVerified=true;users[idx].kyc='email_verified';
+    users[idx].emailVerifyCode=null; // invalider le code utilisé
+    // Bonus parrainage
+    if(users[idx].referrerId){
+      const ridx=users.findIndex(u=>u.id===users[idx].referrerId);
+      if(ridx!==-1){
+        users[ridx].balance=(users[ridx].balance||0)+AFFILIATE_BONUS;
+        users[ridx].affiliateBonus=(users[ridx].affiliateBonus||0)+AFFILIATE_BONUS;
+        users[ridx].referrals=users[ridx].referrals||[];
+        if(!users[ridx].referrals.includes(users[idx].id)) users[ridx].referrals.push(users[idx].id);
+        addTransaction(users[ridx].id,'affiliate',AFFILIATE_BONUS,'approved',`Parrainage: ${users[idx].firstname} ${users[idx].lastname}`);
+        fbSaveUser(users[ridx]);
+      }
+    }
+    saveUsers(users);
+    setCurrentUser(users[idx]);
+    fbSaveUser(users[idx]);
+  }
+  closeModal('emailVerifyModal');
+  showToast('Email vérifié avec succès ! ✅','success');
+  stopMoneyRain();loadDashboard();showPage('dashboard');
 }
 
 async function resendCode(){
-  const cu=getCurrentUser();if(!cu)return;
-  const users=getUsers();const idx=users.findIndex(v=>v.id===cu.id);if(idx===-1)return;
-  const code=genCode();users[idx].emailVerifyCode=code;saveUsers(users);
-  fbSaveUser(users[idx]);
-  const sent=await sendEmail('verification',users[idx].email,users[idx].firstname+' '+users[idx].lastname,{code});
-  if(sent){showToast('Nouveau code envoyé à votre email ✉️','success');}
-  else{showToast(`Nouveau code: ${code} (EmailJS indisponible)`,'warning');const el=document.getElementById('emailVerifyCode');if(el)el.placeholder=`Code: ${code}`;}
+  const cu = getCurrentUser();
+  if(!cu) return showAlert('emailVerifyAlert', 'Session expirée. Veuillez vous réinscrire.');
+
+  const newCode = genCode();
+
+  // 1) Mettre à jour localStorage
+  const users = getUsers();
+  const idx = users.findIndex(v => v.id === cu.id);
+  if(idx !== -1){
+    users[idx].emailVerifyCode = newCode;
+    saveUsers(users);
+  }
+
+  // 2) Mettre à jour la SESSION (source de vérité pour verifyEmail)
+  const updatedUser = {...cu, emailVerifyCode: newCode};
+  setCurrentUser(updatedUser);
+
+  // 3) Envoyer l'email
+  const sent = await sendEmail('verification', cu.email, cu.firstname + ' ' + cu.lastname, {code: newCode});
+
+  if(sent){
+    showToast('Nouveau code envoyé à ' + cu.email + ' ✉️', 'success');
+  } else {
+    showToast('Code: ' + newCode + ' (email indisponible)', 'warning');
+    setTimeout(() => {
+      const el = document.getElementById('emailVerifyCode');
+      if(el){ el.value = newCode; el.style.borderColor = 'var(--gold)'; }
+      showAlert('emailVerifyAlert', '📋 Nouveau code (email indisponible) : ' + newCode, 'info');
+    }, 300);
+  }
+
+  // 4) Firebase en arrière-plan
+  setTimeout(() => fbSaveUser(updatedUser), 1500);
 }
 
 function handleLogin(){
