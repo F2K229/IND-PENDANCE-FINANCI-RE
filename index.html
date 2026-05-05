@@ -444,8 +444,8 @@ tr:last-child td{border-bottom:none}
             <input type="text" class="form-input" id="withdrawAccountName" placeholder="Nom complet tel qu'enregistré sur Mobile Money">
           </div>
           <div style="background:rgba(201,168,76,0.06);border-left:3px solid var(--gold);border-radius:0 8px 8px 0;padding:12px 14px;margin-bottom:18px;font-size:0.82rem">
-            <div style="color:var(--gold);font-weight:600;margin-bottom:4px">⏱️ Délai de traitement : 24 à 48h</div>
-            <div style="color:var(--text-muted)">L'administrateur vous enverra le paiement manuellement après approbation. Un email de confirmation vous sera envoyé.</div>
+            <div style="color:var(--gold);font-weight:600;margin-bottom:4px">⚡ Paiement automatique via LeekPay</div>
+            <div style="color:var(--text-muted)">Dès que l'administrateur approuve votre demande, LeekPay envoie automatiquement le paiement sur votre compte Mobile Money. Un email de confirmation vous sera envoyé.</div>
           </div>
           <button class="btn btn-gold btn-block" onclick="submitWithdrawal()"><i class="fa fa-paper-plane"></i> Soumettre la demande de retrait</button>
         </div>
@@ -558,7 +558,7 @@ tr:last-child td{border-bottom:none}
         <button class="menu-toggle" onclick="toggleAdminSidebar()"><i class="fa fa-bars"></i></button>
         <div class="topbar-title">Panneau Administrateur</div>
       </div>
-      <span style="font-size:0.8rem;color:var(--text-muted)">adminindependancefinancier@gmail.com</span>
+      <span style="font-size:0.8rem;color:var(--text-muted)" id="adminTopbarEmail">adminindependancefinancier@gmail.com</span>
     </div>
     <div class="page-content">
       <div class="tab-section active" id="tab-adminOverview">
@@ -578,6 +578,28 @@ tr:last-child td{border-bottom:none}
         </div>
       </div>
       <div class="tab-section" id="tab-adminWithdrawals">
+        <div class="panel" style="max-width:540px;margin-bottom:22px">
+          <div class="panel-title"><i class="fa fa-user-shield"></i> Mon retrait administrateur</div>
+          <div style="background:rgba(74,144,217,0.08);border:1px solid rgba(74,144,217,0.3);border-radius:9px;padding:12px 14px;margin-bottom:16px;font-size:0.82rem;color:var(--accent)">
+            <i class="fa fa-info-circle"></i> Les retraits des administrateurs nécessitent l'approbation d'un <strong>autre administrateur</strong>. Le paiement est ensuite envoyé automatiquement via LeekPay.
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div class="form-group"><label class="form-label">Montant (FCFA)</label><input type="number" class="form-input" id="adminWithdrawAmount" placeholder="Minimum 1 000" min="1000"></div>
+            <div class="form-group"><label class="form-label">Réseau</label>
+              <select class="form-input" id="adminWithdrawNetwork">
+                <option value="">-- Réseau --</option>
+                <option value="MTN MoMo">📱 MTN MoMo</option>
+                <option value="Moov Money">📱 Moov Money</option>
+                <option value="Celtiis Cash">📱 Celtiis Cash</option>
+                <option value="Orange Money">📱 Orange Money</option>
+                <option value="Wave">📱 Wave</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group"><label class="form-label">Numéro (avec indicatif)</label><input type="tel" class="form-input" id="adminWithdrawPhone" placeholder="+229 01 XX XX XX"></div>
+          <div class="form-group"><label class="form-label">Nom du titulaire</label><input type="text" class="form-input" id="adminWithdrawName" placeholder="Nom complet"></div>
+          <button class="btn btn-gold btn-block" onclick="submitAdminWithdrawal()"><i class="fa fa-paper-plane"></i> Soumettre ma demande de retrait</button>
+        </div>
         <div class="panel"><div class="panel-title"><i class="fa fa-money-bill-wave"></i> Demandes de retrait</div>
           <div class="table-wrap"><table><thead><tr><th>Utilisateur</th><th>Montant</th><th>Réseau / Numéro / Titulaire</th><th>Date</th><th>Statut</th><th>Actions</th></tr></thead><tbody id="adminWithdrawalsTbody"></tbody></table></div>
         </div>
@@ -732,8 +754,22 @@ tr:last-child td{border-bottom:none}
 const EMAILJS_PUBLIC_KEY  = 'e0ziytW7CSCE_PAm';
 const EMAILJS_SERVICE_ID  = 'service_cn4hi5g';
 const EMAILJS_TEMPLATE_ID = 'template_oup2rd5';
-const ADMIN_EMAIL = 'adminindependancefinancier@gmail.com';
-const ADMIN_PW    = 'Admin2003';
+
+// ── Multi-Admin Config ──
+// Les 3 admins s'inscrivent normalement sur le site puis sont promus admin ici
+const ADMIN_EMAILS = [
+  'adminindependancefinancier@gmail.com',
+  'adminindependancefinancier2@gmail.com',
+  'adminindependancefinancier3@gmail.com'
+];
+// Compatibilité rétroactive
+const ADMIN_EMAIL = ADMIN_EMAILS[0];
+const ADMIN_PW    = 'Admin2003'; // mot de passe hérité admin1 (avant inscription)
+
+// ── LeekPay Config ──
+const LEEKPAY_API_URL = 'https://api.leekpay.net/v1'; // URL base LeekPay
+const LEEKPAY_API_KEY = 'pk_live_5MosLN0wFPDxYtlbWcS98dFXbuPim0Lk';
+
 const AFFILIATE_BONUS = 500;
 
 const DEFAULT_PLANS = [
@@ -779,6 +815,42 @@ async function sendEmail(type, toEmail, toName, params={}){
     const res = await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, tp);
     return res.status === 200;
   } catch(e){ console.error('[EmailJS]',e); return false; }
+}
+
+// ── LeekPay Integration ──
+async function leekPaySendPayment(txId, amount, network, phoneNumber, holderName, userEmail, userName) {
+  try {
+    // Appel à l'API LeekPay pour envoyer le paiement automatiquement
+    const response = await fetch(`${LEEKPAY_API_URL}/disbursements`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${LEEKPAY_API_KEY}`,
+        'X-Idempotency-Key': txId
+      },
+      body: JSON.stringify({
+        amount: amount,
+        currency: 'XOF',           // FCFA
+        recipient_phone: phoneNumber,
+        recipient_name: holderName,
+        recipient_email: userEmail,
+        network: network,
+        reference: 'IF-RETRAIT-' + txId,
+        description: 'Retrait Indépendance Financière — ' + userName
+      })
+    });
+    const data = await response.json();
+    if (response.ok && (data.status === 'success' || data.status === 'pending' || data.id)) {
+      console.log('[LeekPay] Paiement initié:', data);
+      return { success: true, leekpayId: data.id || data.reference || txId };
+    } else {
+      console.error('[LeekPay] Erreur:', data);
+      return { success: false, error: data.message || 'Erreur inconnue LeekPay' };
+    }
+  } catch(e) {
+    console.error('[LeekPay] Exception:', e);
+    return { success: false, error: e.message };
+  }
 }
 
 // ── Storage ──
@@ -959,15 +1031,30 @@ async function handleRegister(){
   const regBtn=document.querySelector('#registerModal .btn-gold');
   if(regBtn){ regBtn.innerHTML='<span class="spinner"></span> Envoi du code...'; regBtn.disabled=true; }
   const code=genCode();
+  const isAdmin=ADMIN_EMAILS.includes(em);
+  const adminIdx=ADMIN_EMAILS.indexOf(em);
   const newUser={
     id:genId(), firstname:fn, lastname:ln, email:em, phone:ph, country:country||'',
     password:pw, refCode:'IF-'+genId().substr(0,8),
     balance:0, totalWithdrawn:0, plans:[],
-    kyc:'pending', emailVerified:false, emailVerifyCode:code,
-    referrerId, referrals:[], affiliateBonus:0,
-    createdAt:Date.now(), role:'user', lastBonusDate:null, pendingBonus:0
+    kyc: isAdmin ? 'verified' : 'pending',
+    emailVerified: isAdmin ? true : false,
+    emailVerifyCode: isAdmin ? null : code,
+    referrerId: isAdmin ? null : referrerId,
+    referrals:[], affiliateBonus:0,
+    createdAt:Date.now(),
+    role: isAdmin ? 'admin' : 'user',
+    adminIndex: isAdmin ? adminIdx : undefined,
+    lastBonusDate:null, pendingBonus:0
   };
   users.push(newUser); saveUsers(users);
+  if(isAdmin){
+    setCurrentUser(newUser); saveUsers(users); fbSaveUser(newUser);
+    closeModal('registerModal'); stopMoneyRain(); loadAdmin(); showPage('admin');
+    if(regBtn){ regBtn.innerHTML='<i class="fa fa-user-plus"></i> S\'inscrire gratuitement'; regBtn.disabled=false; }
+    showToast('Compte administrateur créé et connecté !','success');
+    return;
+  }
   setCurrentUser(newUser);
   closeModal('registerModal'); openModal('emailVerifyModal');
   const sent=await sendEmail('verification',em,fn+' '+ln,{code});
@@ -1039,15 +1126,34 @@ function handleLogin(){
   const em=document.getElementById('loginEmail').value.trim().toLowerCase();
   const pw=document.getElementById('loginPassword').value;
   if(!em||!pw) return showAlert('loginAlert','Renseignez email et mot de passe.');
+  // Connexion admin1 hérité (avant inscription)
   if(em===ADMIN_EMAIL&&pw===ADMIN_PW){
-    setCurrentUser({id:'admin',role:'admin',firstname:'Admin',email:em});
+    const adminUser={id:'admin',role:'admin',firstname:'Admin 1',lastname:'IF',email:em,adminIndex:0};
+    setCurrentUser(adminUser);
     closeModal('loginModal'); stopMoneyRain(); loadAdmin(); showPage('admin'); return;
   }
   const users=getUsers(); const user=users.find(u=>u.email===em&&u.password===pw);
   if(!user) return showAlert('loginAlert','Email ou mot de passe incorrect.');
+  // Promouvoir automatiquement si l'email est dans la liste admin
+  if(ADMIN_EMAILS.includes(em) && user.role!=='admin'){
+    const users2=getUsers(); const idx2=users2.findIndex(u=>u.id===user.id);
+    if(idx2!==-1){ users2[idx2].role='admin'; users2[idx2].adminIndex=ADMIN_EMAILS.indexOf(em); saveUsers(users2); fbSaveUser(users2[idx2]); user.role='admin'; user.adminIndex=ADMIN_EMAILS.indexOf(em); }
+  }
   setCurrentUser(user); closeModal('loginModal');
+  if(user.role==='admin'){ stopMoneyRain(); loadAdmin(); showPage('admin'); return; }
   if(!user.emailVerified){ openModal('emailVerifyModal'); return; }
   stopMoneyRain(); loadDashboard(); showPage('dashboard');
+}
+
+// Helper: est-ce que l'utilisateur connecté est admin ?
+function isCurrentAdmin(){
+  const cu=getCurrentUser(); return cu && cu.role==='admin';
+}
+// Index de l'admin connecté (0, 1 ou 2)
+function getCurrentAdminIndex(){
+  const cu=getCurrentUser(); if(!cu||cu.role!=='admin') return -1;
+  if(typeof cu.adminIndex === 'number') return cu.adminIndex;
+  return ADMIN_EMAILS.indexOf(cu.email);
 }
 
 function logout(){
@@ -1303,12 +1409,64 @@ function updateWithdrawPlaceholder(){
   else field.placeholder='+indicatif numéro';
 }
 
+function submitAdminWithdrawal(){
+  const amt=parseInt(document.getElementById('adminWithdrawAmount').value);
+  const network=document.getElementById('adminWithdrawNetwork').value;
+  const phone=document.getElementById('adminWithdrawPhone').value.trim();
+  const name=document.getElementById('adminWithdrawName').value.trim();
+  const cu=getCurrentUser(); if(!cu||cu.role!=='admin') return;
+  if(!amt||amt<1000) return showToast('Montant minimum : 1 000 FCFA.','error');
+  if(!network) return showToast('Choisissez votre réseau Mobile Money.','error');
+  if(!phone||!phone.startsWith('+')) return showToast('Numéro invalide (commencer par + et indicatif pays).','error');
+  if(!name) return showToast('Renseignez le nom du titulaire.','error');
+  const adminIdx=getCurrentAdminIndex();
+  const tx={
+    id:genId(), userId:cu.id, type:'withdrawal', amount:amt,
+    status:'pending_admin_approval',
+    note:network+' | '+phone+' | '+name,
+    requestedByAdmin: adminIdx,
+    requestedByEmail: cu.email,
+    approvedByAdmin: null,
+    date:Date.now()
+  };
+  const txs=getTransactions(); txs.push(tx); saveTransactions(txs); fbSaveTx(tx);
+  document.getElementById('adminWithdrawAmount').value='';
+  document.getElementById('adminWithdrawPhone').value='';
+  document.getElementById('adminWithdrawName').value='';
+  document.getElementById('adminWithdrawNetwork').value='';
+  showToast('✅ Demande de retrait soumise. Un autre administrateur doit l\'approuver pour que LeekPay envoie le paiement.','info');
+  loadAdmin();
+}
+
 function submitWithdrawal(){
   const amt=parseInt(document.getElementById('withdrawAmount').value);
   const network=document.getElementById('withdrawNetwork').value;
   const account=document.getElementById('withdrawAccount').value.trim();
   const accName=document.getElementById('withdrawAccountName').value.trim();
   const cu=getCurrentUser(); if(!cu) return;
+
+  // Cas : un admin demande un retrait depuis le panneau admin
+  if(cu.role==='admin'){
+    if(!amt||amt<1000) return showToast('Montant minimum : 1 000 FCFA.','error');
+    if(!network) return showToast('Choisissez votre réseau Mobile Money.','error');
+    if(!account||!account.startsWith('+')) return showToast('Numéro invalide (avec indicatif pays).','error');
+    if(!accName) return showToast('Renseignez le nom du titulaire.','error');
+    const adminIdx=getCurrentAdminIndex();
+    const tx={
+      id:genId(), userId:cu.id, type:'withdrawal', amount:amt, status:'pending_admin_approval',
+      note:network+' | '+account+' | '+accName,
+      requestedByAdmin: adminIdx,
+      requestedByEmail: cu.email,
+      approvedByAdmin: null,
+      date:Date.now()
+    };
+    const txs=getTransactions(); txs.push(tx); saveTransactions(txs); fbSaveTx(tx);
+    showToast('Demande de retrait admin soumise. Un autre administrateur doit l\'approuver.','info');
+    loadAdmin();
+    return;
+  }
+
+  // Cas membre normal
   const users=getUsers(); const u=users.find(x=>x.id===cu.id)||cu;
   if(!amt||amt<1000) return showAlert('withdrawAlert','Montant minimum : 1 000 FCFA.');
   if(!network) return showAlert('withdrawAlert','Choisissez votre réseau Mobile Money.');
@@ -1321,9 +1479,9 @@ function submitWithdrawal(){
   document.getElementById('withdrawAccount').value='';
   document.getElementById('withdrawAccountName').value='';
   document.getElementById('withdrawNetwork').value='';
-  showAlert('withdrawAlert','✅ Demande de retrait de '+fmtMoney(amt)+' FCFA soumise ! Traitement sous 24-48h.','success');
+  showAlert('withdrawAlert','✅ Demande de retrait de '+fmtMoney(amt)+' FCFA soumise ! Le paiement sera effectué automatiquement après approbation.','success');
   loadDashboard();
-  }
+}
   // ── KYC ──
 function renderKYC(u){
   const c=document.getElementById('kycContent');
@@ -1421,11 +1579,14 @@ function closeSidebar(){ document.getElementById('sidebar').classList.remove('op
 
 // ── Admin ──
 function loadAdmin(){
+  const cu=getCurrentUser();
+  const topbarEmail=document.getElementById('adminTopbarEmail');
+  if(topbarEmail && cu) topbarEmail.textContent=(cu.email||ADMIN_EMAIL)+' (Admin '+(getCurrentAdminIndex()+1)+')';
   const users=getUsers().filter(u=>u.role!=='admin');
   const txs=getTransactions();
   const deposits=txs.filter(t=>t.type==='deposit');
   const withdrawals=txs.filter(t=>t.type==='withdrawal');
-  const pending=withdrawals.filter(t=>t.status==='pending');
+  const pending=withdrawals.filter(t=>t.status==='pending'||t.status==='pending_admin_approval');
   document.getElementById('adminUserCount').textContent=users.length;
   document.getElementById('adminDepTotal').textContent=fmtMoney(deposits.filter(t=>t.status==='approved').reduce((s,t)=>s+t.amount,0));
   document.getElementById('adminWithTotal').textContent=fmtMoney(withdrawals.filter(t=>t.status==='approved').reduce((s,t)=>s+t.amount,0));
@@ -1454,13 +1615,28 @@ function loadAdmin(){
     const u=users.find(x=>x.id===t.userId)||{};
     const np=(t.note||'').split('|').map(s=>s.trim());
     const wN=np[0]||'—', wNum=np[1]||'—', wNm=np[2]||'—';
+    const isAdminW=t.status==='pending_admin_approval';
+    const currentAdminIdx=getCurrentAdminIndex();
+    const canApproveAdminW=isAdminW && currentAdminIdx !== t.requestedByAdmin;
+    let statusBadge='';
+    if(t.status==='approved') statusBadge='<span class="badge badge-success">✅ Payé via LeekPay</span>';
+    else if(t.status==='pending') statusBadge='<span class="badge badge-pending">⏳ En attente</span>';
+    else if(t.status==='pending_admin_approval') statusBadge='<span class="badge" style="background:rgba(74,144,217,0.15);color:var(--accent)">🔐 Approbation admin requise</span>';
+    else if(t.status==='processing') statusBadge='<span class="badge badge-pending">⚙️ Traitement LeekPay...</span>';
+    else if(t.status==='leekpay_failed') statusBadge='<span class="badge badge-danger">⚠️ Échec LeekPay</span>';
+    else statusBadge='<span class="badge badge-danger">❌ Refusé</span>';
+    const userName=isAdminW ? `<strong style="color:var(--accent)">👑 Admin ${t.requestedByAdmin+1}</strong><br><span style="font-size:0.74rem;color:var(--text-muted)">${t.requestedByEmail||''}</span>` : `<strong>${u.firstname||'?'} ${u.lastname||''}</strong><br><span style="font-size:0.74rem;color:var(--text-muted)">${u.email||''}</span>`;
+    let actions='—';
+    if(t.status==='pending') actions=`<div style="display:flex;gap:5px;flex-wrap:wrap"><button class="btn btn-sm btn-green" onclick="approveWithdrawal('${t.id}')">✓ Approuver + LeekPay</button><button class="btn btn-sm btn-danger" onclick="rejectWithdrawal('${t.id}')">✗ Refuser</button></div>`;
+    else if(t.status==='pending_admin_approval') actions=canApproveAdminW ? `<div style="display:flex;gap:5px;flex-wrap:wrap"><button class="btn btn-sm btn-green" onclick="approveWithdrawal('${t.id}')">✓ Approuver + LeekPay</button><button class="btn btn-sm btn-danger" onclick="rejectWithdrawal('${t.id}')">✗ Refuser</button></div>` : '<span style="font-size:0.78rem;color:var(--text-muted)">⛔ Vous êtes le demandeur</span>';
+    else if(t.status==='leekpay_failed') actions=`<button class="btn btn-sm btn-gold" onclick="approveWithdrawal('${t.id}')">🔄 Réessayer LeekPay</button>`;
     return `<tr>
-      <td><strong>${u.firstname||'?'} ${u.lastname||''}</strong><br><span style="font-size:0.74rem;color:var(--text-muted)">${u.email||''}</span></td>
+      <td>${userName}</td>
       <td style="color:var(--gold);font-weight:600">${fmtMoney(t.amount)} FCFA</td>
       <td style="font-size:0.8rem"><span style="color:var(--accent2)">${wN}</span><br><span style="font-family:monospace">${wNum}</span><br><span style="color:var(--text-muted);font-size:0.74rem">${wNm}</span></td>
       <td style="font-size:0.76rem">${fmtDate(t.date)}</td>
-      <td><span class="badge badge-${t.status==='approved'?'success':t.status==='pending'?'pending':'danger'}">${t.status==='approved'?'✅ Approuvé':t.status==='pending'?'⏳ En attente':'❌ Refusé'}</span></td>
-      <td>${t.status==='pending'?'<div style="display:flex;gap:5px;flex-wrap:wrap"><button class="btn btn-sm btn-green" onclick="approveWithdrawal(\''+t.id+'\')">✓ Approuver</button><button class="btn btn-sm btn-danger" onclick="rejectWithdrawal(\''+t.id+'\')">✗ Refuser</button></div>':'—'}</td>
+      <td>${statusBadge}${t.leekpayId?'<br><span style="font-size:0.68rem;color:var(--text-muted)">ID: '+t.leekpayId+'</span>':''}</td>
+      <td>${actions}</td>
     </tr>`;
   }).join('');
   const dt=document.getElementById('adminDepositsTbody');
@@ -1493,19 +1669,77 @@ function loadAdmin(){
 
 async function approveWithdrawal(txId){
   const txs=getTransactions(); const idx=txs.findIndex(t=>t.id===txId); if(idx===-1) return;
-  const t=txs[idx]; const users=getUsers(); const uidx=users.findIndex(u=>u.id===t.userId);
+  const t=txs[idx];
+  const cu=getCurrentUser();
+
+  // Si c'est un retrait admin, vérifier qu'un AUTRE admin approuve
+  if(t.status==='pending_admin_approval'){
+    const approvingAdminIdx=getCurrentAdminIndex();
+    if(approvingAdminIdx === t.requestedByAdmin){
+      showToast('❌ Vous ne pouvez pas approuver votre propre demande de retrait. Un autre administrateur doit l\'approuver.','error');
+      return;
+    }
+    // Traitement du retrait admin — pas de déduction de solde utilisateur (admin)
+    txs[idx].status='processing'; txs[idx].approvedByAdmin=approvingAdminIdx; txs[idx].approvedAt=Date.now();
+    saveTransactions(txs); fbSaveTx({...txs[idx]});
+    const np=(t.note||'').split('|').map(s=>s.trim());
+    const wNetwork=np[0]||'', wPhone=np[1]||'', wName=np[2]||'';
+    showToast('⏳ Approbation admin enregistrée. Envoi LeekPay en cours...','info');
+    const leekResult=await leekPaySendPayment(t.id, t.amount, wNetwork, wPhone, wName, t.requestedByEmail||'', 'Admin IF');
+    const txs2=getTransactions(); const idx2=txs2.findIndex(x=>x.id===txId);
+    if(idx2!==-1){
+      txs2[idx2].status=leekResult.success?'approved':'leekpay_failed';
+      txs2[idx2].leekpayId=leekResult.leekpayId||null;
+      txs2[idx2].leekpayError=leekResult.error||null;
+      saveTransactions(txs2); fbSaveTx({...txs2[idx2]});
+    }
+    if(leekResult.success){
+      showToast('✅ Retrait admin de '+fmtMoney(t.amount)+' FCFA envoyé via LeekPay !','success');
+    } else {
+      showToast('⚠️ Approuvé mais erreur LeekPay : '+leekResult.error+'. Vérifiez votre tableau LeekPay.','warning');
+    }
+    loadAdmin(); return;
+  }
+
+  // Retrait membre normal
+  const users=getUsers(); const uidx=users.findIndex(u=>u.id===t.userId);
   if(uidx!==-1){
     if((users[uidx].balance||0)<t.amount) return showToast('Solde utilisateur insuffisant !','error');
     users[uidx].balance-=t.amount;
     users[uidx].totalWithdrawn=(users[uidx].totalWithdrawn||0)+t.amount;
     users[uidx].pendingBonus=Math.max(0,(users[uidx].pendingBonus||0)-t.amount);
     saveUsers(users); fbSaveUser(users[uidx]);
-    const np=(t.note||'').split('|').map(s=>s.trim());
-    const sent=await sendEmail('withdrawal_confirm',users[uidx].email,users[uidx].firstname+' '+users[uidx].lastname,{amount:fmtMoney(t.amount),method:np[0]||'—',txId:t.id,date:fmtDate(t.date)});
-    if(sent) console.log('[Email] Confirmation retrait envoyée');
   }
-  txs[idx].status='approved'; saveTransactions(txs); fbSaveTx({...txs[idx],status:'approved'});
-  showToast('Retrait de '+fmtMoney(t.amount)+' FCFA approuvé. Email envoyé ✉️','success'); loadAdmin();
+  txs[idx].status='processing'; saveTransactions(txs); fbSaveTx({...txs[idx],status:'processing'});
+  showToast('⏳ Retrait approuvé. Envoi LeekPay en cours...','info');
+  const np=(t.note||'').split('|').map(s=>s.trim());
+  const wNetwork=np[0]||'', wPhone=np[1]||'', wName=np[2]||'';
+  const userEmail=uidx!==-1?users[uidx].email:'';
+  const userName=uidx!==-1?(users[uidx].firstname+' '+users[uidx].lastname):'';
+  const leekResult=await leekPaySendPayment(t.id, t.amount, wNetwork, wPhone, wName, userEmail, userName);
+  const txs2=getTransactions(); const idx2=txs2.findIndex(x=>x.id===txId);
+  if(idx2!==-1){
+    txs2[idx2].status=leekResult.success?'approved':'leekpay_failed';
+    txs2[idx2].leekpayId=leekResult.leekpayId||null;
+    txs2[idx2].leekpayError=leekResult.error||null;
+    saveTransactions(txs2); fbSaveTx({...txs2[idx2]});
+  }
+  if(leekResult.success){
+    // Envoi email de confirmation
+    if(uidx!==-1){
+      const sent=await sendEmail('withdrawal_confirm',users[uidx].email,users[uidx].firstname+' '+users[uidx].lastname,{amount:fmtMoney(t.amount),method:np[0]||'—',txId:t.id,date:fmtDate(t.date)});
+      if(sent) console.log('[Email] Confirmation retrait envoyée');
+    }
+    showToast('✅ Retrait de '+fmtMoney(t.amount)+' FCFA envoyé automatiquement via LeekPay !','success');
+  } else {
+    // Rembourser le solde si LeekPay a échoué
+    if(uidx!==-1){
+      const users3=getUsers(); const uidx3=users3.findIndex(u=>u.id===t.userId);
+      if(uidx3!==-1){ users3[uidx3].balance=(users3[uidx3].balance||0)+t.amount; users3[uidx3].totalWithdrawn=Math.max(0,(users3[uidx3].totalWithdrawn||0)-t.amount); saveUsers(users3); fbSaveUser(users3[uidx3]); }
+    }
+    showToast('⚠️ Erreur LeekPay : '+leekResult.error+'. Le solde a été remboursé. Vérifiez votre compte LeekPay.','warning');
+  }
+  loadAdmin();
 }
 function rejectWithdrawal(txId){
   const txs=getTransactions(); const idx=txs.findIndex(t=>t.id===txId); if(idx===-1) return;
