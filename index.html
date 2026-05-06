@@ -374,43 +374,21 @@ tr:last-child td{border-bottom:none}
         <div class="panel" style="max-width:520px">
           <div class="panel-title"><i class="fa fa-wallet"></i> Faire un dépôt</div>
           <div id="depositAlert" class="alert"></div>
+          <div style="background:linear-gradient(135deg,rgba(201,168,76,0.1),rgba(201,168,76,0.05));border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:20px;display:flex;align-items:center;gap:13px">
+            <div style="font-size:2rem">⚡</div>
+            <div>
+              <div style="font-weight:600;color:var(--gold);margin-bottom:2px">Paiement sécurisé via LeekPay</div>
+              <div style="font-size:0.82rem;color:var(--text-muted)">MTN MoMo · Moov Money · Orange Money · Wave · Celtiis et plus</div>
+            </div>
+          </div>
           <div class="form-group">
             <label class="form-label">Montant à déposer (FCFA)</label>
-            <input type="number" class="form-input" id="depositAmount" placeholder="Minimum 500 FCFA" min="500" oninput="updateDepositPreview()">
+            <input type="number" class="form-input" id="depositAmount" placeholder="Minimum 500 FCFA" min="500">
           </div>
-          <div id="beninNetworkBlock" style="display:none">
-            <label class="form-label" style="font-size:0.78rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;display:block;margin-bottom:10px">Choisir votre réseau</label>
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:18px">
-              <div class="network-btn" id="net-mtn" onclick="selectNetwork('mtn')"><div style="font-size:1.6rem">📱</div><div style="font-size:0.8rem;font-weight:600;color:#FFCC00">MTN</div><div style="font-size:0.68rem;color:var(--text-muted)">MoMo</div></div>
-              <div class="network-btn" id="net-moov" onclick="selectNetwork('moov')"><div style="font-size:1.6rem">📱</div><div style="font-size:0.8rem;font-weight:600;color:#0066CC">MOOV</div><div style="font-size:0.68rem;color:var(--text-muted)">Money</div></div>
-              <div class="network-btn" id="net-celtiis" onclick="selectNetwork('celtiis')"><div style="font-size:1.6rem">📱</div><div style="font-size:0.8rem;font-weight:600;color:#FF6600">CELTIIS</div><div style="font-size:0.68rem;color:var(--text-muted)">Cash</div></div>
-            </div>
+          <div style="background:rgba(46,204,113,0.07);border:1px solid rgba(46,204,113,0.25);border-radius:8px;padding:11px 14px;margin-bottom:18px;font-size:0.82rem">
+            <i class="fa fa-bolt" style="color:var(--accent2);margin-right:6px"></i>Votre solde est crédité <strong style="color:var(--text)">automatiquement</strong> dès confirmation du paiement LeekPay.
           </div>
-          <div id="internationalBlock" style="display:none">
-            <div style="background:rgba(201,168,76,0.08);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px">
-              <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.05em">Coordonnées de paiement</div>
-              <div style="display:flex;align-items:center;gap:10px">
-                <span style="font-size:1.4rem">📱</span>
-                <div>
-                  <div style="font-weight:600;color:var(--gold)">MTN MoMo International</div>
-                  <div style="font-size:0.82rem;color:var(--text-muted)">Titulaire : <strong style="color:var(--text)">KOKOU Jos</strong></div>
-                  <div style="font-size:0.9rem;color:var(--text);font-family:monospace;margin-top:3px">+229 01 97 00 00 00</div>
-                </div>
-              </div>
-              <div style="font-size:0.78rem;color:var(--text-muted);margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">ℹ️ Effectuez le virement depuis votre application MoMo puis entrez la référence ci-dessous.</div>
-            </div>
-          </div>
-          <div id="refBlock" style="display:none">
-            <div class="form-group">
-              <label class="form-label">Référence / ID de transaction</label>
-              <input type="text" class="form-input" id="depositRef" placeholder="Ex: 241568XXXXXX">
-              <div style="font-size:0.76rem;color:var(--text-muted);margin-top:5px">Entrez la référence reçue par SMS après votre paiement</div>
-            </div>
-          </div>
-          <div style="background:rgba(74,144,217,0.07);border:1px solid rgba(74,144,217,0.22);border-radius:8px;padding:11px;margin-bottom:16px;font-size:0.82rem">
-            <i class="fa fa-clock" style="color:var(--accent);margin-right:6px"></i>Votre solde sera crédité après vérification par l'administrateur <strong style="color:var(--text)">(max. 30 min)</strong>.
-          </div>
-          <button class="btn btn-gold btn-block" onclick="submitDeposit()"><i class="fa fa-mobile-alt"></i> Lancer le paiement Mobile Money</button>
+          <button class="btn btn-gold btn-block" onclick="submitDeposit()"><i class="fa fa-credit-card"></i> Payer avec LeekPay</button>
         </div>
       </div>
       <div class="tab-section" id="tab-withdraw">
@@ -1323,79 +1301,71 @@ function isBeninUser(){
   return country==='bénin'||country==='benin'||country==='bj'||country==='';
 }
 
-function updateDepositPreview(){
-  const amt=parseInt(document.getElementById('depositAmount').value)||0;
-  _currentDepositAmt=amt; _isBeninUser=isBeninUser();
-  const bb=document.getElementById('beninNetworkBlock');
-  const ib=document.getElementById('internationalBlock');
-  const rb=document.getElementById('refBlock');
-  if(amt>=500){
-    if(_isBeninUser){ if(bb)bb.style.display='block'; if(ib)ib.style.display='none'; if(rb)rb.style.display='none'; }
-    else { if(bb)bb.style.display='none'; if(ib)ib.style.display='block'; if(rb)rb.style.display='block'; }
-  } else {
-    if(bb)bb.style.display='none'; if(ib)ib.style.display='none'; if(rb)rb.style.display='none';
+function updateDepositPreview(){ /* non utilisé — LeekPay gère tout */ }
+function selectNetwork(net){ /* non utilisé — LeekPay gère tout */ }
+function launchUSSD(e){ /* non utilisé — LeekPay gère tout */ }
+function confirmUSSDPayment(){ /* non utilisé — LeekPay gère tout */ }
+
+// ── LeekPay Collection (Dépôt) ──
+async function leekPayCollectPayment(txId, amount, userPhone, userEmail, userName) {
+  try {
+    const response = await fetch(`${LEEKPAY_API_URL}/collections`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${LEEKPAY_API_KEY}`,
+        'X-Idempotency-Key': txId
+      },
+      body: JSON.stringify({
+        amount: amount,
+        currency: 'XOF',
+        customer_phone: userPhone,
+        customer_name: userName,
+        customer_email: userEmail,
+        reference: 'IF-DEPOT-' + txId,
+        description: 'Dépôt Indépendance Financière — ' + userName,
+        callback_url: window.location.href,
+        redirect_url: window.location.href
+      })
+    });
+    const data = await response.json();
+    if (response.ok && (data.payment_url || data.checkout_url || data.redirect_url || data.url)) {
+      const payUrl = data.payment_url || data.checkout_url || data.redirect_url || data.url;
+      return { success: true, paymentUrl: payUrl, leekpayId: data.id || data.reference || txId };
+    } else {
+      console.error('[LeekPay Collection] Erreur:', data);
+      return { success: false, error: data.message || JSON.stringify(data) };
+    }
+  } catch(e) {
+    console.error('[LeekPay Collection] Exception:', e);
+    return { success: false, error: e.message };
   }
 }
 
-function selectNetwork(net){
-  _selectedNetwork=net;
-  document.querySelectorAll('.network-btn').forEach(b=>b.classList.remove('selected'));
-  const btn=document.getElementById('net-'+net); if(btn) btn.classList.add('selected');
-  const rb=document.getElementById('refBlock'); if(rb) rb.style.display='block';
-}
-
-function submitDeposit(){
+async function submitDeposit(){
   const amt=parseInt(document.getElementById('depositAmount').value);
   if(!amt||amt<500) return showAlert('depositAlert','Montant minimum : 500 FCFA.');
-  _currentDepositAmt=amt; _isBeninUser=isBeninUser();
-  if(_isBeninUser&&!_selectedNetwork) return showAlert('depositAlert','Veuillez sélectionner votre réseau Mobile Money.');
-  const netLabels={mtn:'MTN MoMo',moov:'Moov Money',celtiis:'Celtiis Cash'};
-  const label=_isBeninUser?netLabels[_selectedNetwork]:'MTN MoMo International';
-  document.getElementById('ussdTitle').textContent='Paiement '+label;
-  document.getElementById('ussdAmount').textContent=fmtMoney(amt)+' FCFA';
-  document.getElementById('ussdRefInput').value='';
-  if(_isBeninUser){
-    const num=_n[_selectedNetwork].replace('+','').replace(/\s/g,'');
-    let ussdCode='';
-    if(_selectedNetwork==='mtn') ussdCode='*880*'+num+'*'+amt+'%23';
-    else if(_selectedNetwork==='moov') ussdCode='*155*1*'+num+'*'+amt+'%23';
-    else if(_selectedNetwork==='celtiis') ussdCode='*144*'+num+'*'+amt+'%23';
-    document.getElementById('ussdLink').href='tel:'+ussdCode;
-    document.getElementById('ussdSubtitle').textContent='Appuyez ci-dessous pour ouvrir le dialer de paiement';
-    document.getElementById('ussdBeninBtn').style.display='block';
-    document.getElementById('ussdIntlInfo').style.display='none';
-  } else {
-    document.getElementById('ussdSubtitle').textContent='Effectuez le virement sur le numéro ci-dessous puis entrez la référence';
-    document.getElementById('ussdBeninBtn').style.display='none';
-    document.getElementById('ussdIntlInfo').style.display='block';
-  }
-  openModal('ussdModal');
-}
-
-function launchUSSD(e){
-  showToast('Dialer ouvert — confirmez avec votre PIN 🔐','info');
-  setTimeout(()=>showToast('Entrez votre référence SMS ci-dessous ✉️','warning'),8000);
-}
-
-function confirmUSSDPayment(){
-  const ref=document.getElementById('ussdRefInput').value.trim();
-  if(!ref) return showAlert('ussdModal','Veuillez entrer la référence SMS reçue après paiement.');
   const cu=getCurrentUser(); if(!cu) return;
-  const netLabels={mtn:'MTN MoMo',moov:'Moov Money',celtiis:'Celtiis Cash'};
-  const netLabel=_isBeninUser?(netLabels[_selectedNetwork]||_selectedNetwork):'MTN MoMo International';
+  const users=getUsers(); const u=users.find(x=>x.id===cu.id)||cu;
+  const btn=document.querySelector('#tab-deposit .btn-gold');
+  if(btn){ btn.innerHTML='<span class="spinner"></span> Connexion à LeekPay...'; btn.disabled=true; }
   const txId=genId();
-  const tx={id:txId,userId:cu.id,type:'deposit',amount:_currentDepositAmt,status:'pending',method:netLabel,note:'Via '+netLabel+' | Réf: '+ref,date:Date.now()};
-  const txs=getTransactions(); txs.push(tx); saveTransactions(txs); fbSaveTx(tx);
-  closeModal('ussdModal');
-  _selectedNetwork=null;
-  document.querySelectorAll('.network-btn').forEach(b=>b.classList.remove('selected'));
-  document.getElementById('depositAmount').value='';
-  const bb=document.getElementById('beninNetworkBlock'); if(bb)bb.style.display='none';
-  const ib=document.getElementById('internationalBlock'); if(ib)ib.style.display='none';
-  const rb=document.getElementById('refBlock'); if(rb)rb.style.display='none';
-  showAlert('depositAlert','✅ Dépôt de '+fmtMoney(_currentDepositAmt)+' FCFA enregistré (réf: '+ref+'). Crédit sous 30 min.','success');
-  showToast('Demande de dépôt soumise !','success');
-  loadDashboard();
+  const result=await leekPayCollectPayment(txId, amt, u.phone||'', u.email, u.firstname+' '+u.lastname);
+  if(btn){ btn.innerHTML='<i class="fa fa-credit-card"></i> Payer avec LeekPay'; btn.disabled=false; }
+  if(result.success){
+    // Enregistrer la transaction en attente
+    const tx={id:txId, userId:cu.id, type:'deposit', amount:amt, status:'pending',
+      note:'LeekPay | Réf: '+result.leekpayId, leekpayId:result.leekpayId, date:Date.now()};
+    const txs=getTransactions(); txs.push(tx); saveTransactions(txs); fbSaveTx(tx);
+    document.getElementById('depositAmount').value='';
+    showToast('Redirection vers LeekPay... 🔐','info');
+    // Ouvrir la page de paiement LeekPay
+    window.open(result.paymentUrl,'_blank');
+    showAlert('depositAlert','✅ Page de paiement LeekPay ouverte. Complétez le paiement sur LeekPay — votre solde sera crédité automatiquement.','success');
+    loadDashboard();
+  } else {
+    showAlert('depositAlert','❌ Erreur LeekPay : '+result.error+'. Veuillez réessayer ou contacter le support.','error');
+  }
 }
 
 function updateWithdrawPlaceholder(){
@@ -1642,14 +1612,15 @@ function loadAdmin(){
   const dt=document.getElementById('adminDepositsTbody');
   if(dt) dt.innerHTML=[...deposits].reverse().map(t=>{
     const u=users.find(x=>x.id===t.userId)||{};
+    const isLeekPay=t.note&&t.note.startsWith('LeekPay');
     return `<tr>
       <td>${u.firstname||'?'} ${u.lastname||''}</td>
       <td style="color:var(--accent2)">${fmtMoney(t.amount)} FCFA</td>
-      <td style="font-size:0.78rem">${t.note?.split('|')[0]||'—'}</td>
-      <td style="font-size:0.76rem;color:var(--text-muted)">${t.note?.split('Réf: ')[1]||'—'}</td>
+      <td style="font-size:0.78rem">${isLeekPay?'<span style="color:var(--gold)">⚡ LeekPay</span>':'Mobile Money'}</td>
+      <td style="font-size:0.76rem;color:var(--text-muted)">${t.leekpayId||t.note?.split('Réf: ')[1]||'—'}</td>
       <td style="font-size:0.76rem">${fmtDate(t.date)}</td>
-      <td><span class="badge badge-${t.status==='approved'?'success':t.status==='pending'?'pending':'danger'}">${t.status==='approved'?'Approuvé':t.status==='pending'?'En attente':'Refusé'}</span></td>
-      <td>${t.status==='pending'?'<button class="btn btn-sm btn-green" onclick="approveDeposit(\''+t.id+'\')">✓ Approuver</button>':'—'}</td>
+      <td><span class="badge badge-${t.status==='approved'?'success':t.status==='pending'?'pending':'danger'}">${t.status==='approved'?'✅ Crédité':t.status==='pending'?'⏳ En attente':'❌ Refusé'}</span></td>
+      <td>${t.status==='pending'?'<button class="btn btn-sm btn-green" onclick="approveDeposit(\''+t.id+'\')">✓ Créditer manuellement</button>':'—'}</td>
     </tr>`;
   }).join('');
   const kt=document.getElementById('adminKycTbody');
@@ -1747,11 +1718,12 @@ function rejectWithdrawal(txId){
   showToast('Retrait refusé.','info'); loadAdmin();
 }
 function approveDeposit(txId){
+  // Approbation manuelle (si LeekPay webhook n'a pas encore crédité)
   const txs=getTransactions(); const idx=txs.findIndex(t=>t.id===txId); if(idx===-1) return;
   const t=txs[idx]; const users=getUsers(); const uidx=users.findIndex(u=>u.id===t.userId);
   if(uidx!==-1){ users[uidx].balance=(users[uidx].balance||0)+t.amount; saveUsers(users); fbSaveUser(users[uidx]); }
   txs[idx].status='approved'; saveTransactions(txs); fbSaveTx({...txs[idx],status:'approved'});
-  showToast('Dépôt de '+fmtMoney(t.amount)+' FCFA approuvé.','success'); loadAdmin();
+  showToast('Dépôt de '+fmtMoney(t.amount)+' FCFA approuvé manuellement.','success'); loadAdmin();
 }
 function approveKYC(userId){
   const users=getUsers(); const idx=users.findIndex(u=>u.id===userId); if(idx===-1) return;
@@ -1863,7 +1835,31 @@ function deletePlanFromForm(){
   deletePlan(id);
 }
 
-// ── INIT ──
+// ── LeekPay Webhook / Callback Handler ──
+// LeekPay peut rediriger vers cette page avec des paramètres de confirmation
+(function handleLeekPayCallback(){
+  const params=new URLSearchParams(window.location.search);
+  const status=params.get('status')||params.get('payment_status');
+  const ref=params.get('reference')||params.get('ref')||params.get('transaction_id');
+  if(!status||!ref) return;
+  if(status==='success'||status==='completed'||status==='paid'){
+    // Chercher la transaction correspondante
+    const txs=getTransactions();
+    // Chercher par leekpayId ou par référence dans la note
+    const idx=txs.findIndex(t=>t.leekpayId===ref||t.note?.includes(ref));
+    if(idx!==-1 && txs[idx].status==='pending' && txs[idx].type==='deposit'){
+      const t=txs[idx];
+      const users=getUsers(); const uidx=users.findIndex(u=>u.id===t.userId);
+      if(uidx!==-1){ users[uidx].balance=(users[uidx].balance||0)+t.amount; saveUsers(users); fbSaveUser(users[uidx]); }
+      txs[idx].status='approved'; saveTransactions(txs); fbSaveTx({...txs[idx],status:'approved'});
+      setTimeout(()=>showToast('✅ Dépôt de '+fmtMoney(t.amount)+' FCFA confirmé par LeekPay !','success'),1000);
+    }
+    // Nettoyer l'URL
+    const clean=window.location.href.split('?')[0]; window.history.replaceState({},document.title,clean);
+  }
+})();
+
+// ── Init ──
 (function init(){
   if(!localStorage.getItem('IF_plans')) savePlans(DEFAULT_PLANS);
   if(!getUsers().length){
