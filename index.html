@@ -6,6 +6,7 @@
 <title>INDÉPENDANCE FINANCIÈRE — Investissement Mondial</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/js/all.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+<script src="https://leekpay.fr/js/leekpay.js"></script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getFirestore, collection, doc, setDoc, getDoc, getDocs, updateDoc, deleteDoc, query, where, orderBy } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
@@ -1306,66 +1307,54 @@ function selectNetwork(net){ /* non utilisé — LeekPay gère tout */ }
 function launchUSSD(e){ /* non utilisé — LeekPay gère tout */ }
 function confirmUSSDPayment(){ /* non utilisé — LeekPay gère tout */ }
 
-// ── LeekPay Collection (Dépôt) ──
-async function leekPayCollectPayment(txId, amount, userPhone, userEmail, userName) {
-  try {
-    const response = await fetch(`${LEEKPAY_API_URL}/collections`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${LEEKPAY_API_KEY}`,
-        'X-Idempotency-Key': txId
-      },
-      body: JSON.stringify({
-        amount: amount,
-        currency: 'XOF',
-        customer_phone: userPhone,
-        customer_name: userName,
-        customer_email: userEmail,
-        reference: 'IF-DEPOT-' + txId,
-        description: 'Dépôt Indépendance Financière — ' + userName,
-        callback_url: window.location.href,
-        redirect_url: window.location.href
-      })
-    });
-    const data = await response.json();
-    if (response.ok && (data.payment_url || data.checkout_url || data.redirect_url || data.url)) {
-      const payUrl = data.payment_url || data.checkout_url || data.redirect_url || data.url;
-      return { success: true, paymentUrl: payUrl, leekpayId: data.id || data.reference || txId };
-    } else {
-      console.error('[LeekPay Collection] Erreur:', data);
-      return { success: false, error: data.message || JSON.stringify(data) };
-    }
-  } catch(e) {
-    console.error('[LeekPay Collection] Exception:', e);
-    return { success: false, error: e.message };
-  }
-}
-
-async function submitDeposit(){
+// ── LeekPay Dépôt via Widget HTML (clé publique uniquement) ──
+function submitDeposit(){
   const amt=parseInt(document.getElementById('depositAmount').value);
   if(!amt||amt<500) return showAlert('depositAlert','Montant minimum : 500 FCFA.');
   const cu=getCurrentUser(); if(!cu) return;
   const users=getUsers(); const u=users.find(x=>x.id===cu.id)||cu;
-  const btn=document.querySelector('#tab-deposit .btn-gold');
-  if(btn){ btn.innerHTML='<span class="spinner"></span> Connexion à LeekPay...'; btn.disabled=true; }
+
+  if(typeof LeekPay === 'undefined')
+    return showAlert('depositAlert','❌ Impossible de charger LeekPay. Vérifiez votre connexion internet.','error');
+
   const txId=genId();
-  const result=await leekPayCollectPayment(txId, amt, u.phone||'', u.email, u.firstname+' '+u.lastname);
-  if(btn){ btn.innerHTML='<i class="fa fa-credit-card"></i> Payer avec LeekPay'; btn.disabled=false; }
-  if(result.success){
-    // Enregistrer la transaction en attente
-    const tx={id:txId, userId:cu.id, type:'deposit', amount:amt, status:'pending',
-      note:'LeekPay | Réf: '+result.leekpayId, leekpayId:result.leekpayId, date:Date.now()};
-    const txs=getTransactions(); txs.push(tx); saveTransactions(txs); fbSaveTx(tx);
-    document.getElementById('depositAmount').value='';
-    showToast('Redirection vers LeekPay... 🔐','info');
-    // Ouvrir la page de paiement LeekPay
-    window.open(result.paymentUrl,'_blank');
-    showAlert('depositAlert','✅ Page de paiement LeekPay ouverte. Complétez le paiement sur LeekPay — votre solde sera crédité automatiquement.','success');
-    loadDashboard();
-  } else {
-    showAlert('depositAlert','❌ Erreur LeekPay : '+result.error+'. Veuillez réessayer ou contacter le support.','error');
-  }
+
+  // Enregistrer la transaction en pending
+  const tx={id:txId, userId:cu.id, type:'deposit', amount:amt, status:'pending',
+    note:'LeekPay | en attente', leekpayId:null, date:Date.now()};
+  const txs=getTransactions(); txs.push(tx); saveTransactions(txs); fbSaveTx(tx);
+
+  // Callbacks : succès → créditer solde immédiatement ; annulation → supprimer tx
+  LeekPay.configure({
+    onSuccess: function(data){
+      const txs2=getTransactions(); const idx=txs2.findIndex(t=>t.id===txId);
+      if(idx!==-1){ txs2[idx].status='approved'; txs2[idx].leekpayId=data.payment_id||data.id||txId; saveTransactions(txs2); fbSaveTx({...txs2[idx]}); }
+      const usrs=getUsers(); const uidx=usrs.findIndex(x=>x.id===cu.id);
+      if(uidx!==-1){ usrs[uidx].balance=(usrs[uidx].balance||0)+amt; saveUsers(usrs); setCurrentUser(usrs[uidx]); fbSaveUser(usrs[uidx]); }
+      document.getElementById('depositAmount').value='';
+      showAlert('depositAlert','✅ Dépôt de '+fmtMoney(amt)+' FCFA confirmé ! Solde crédité.','success');
+      showToast('💰 Solde crédité de '+fmtMoney(amt)+' FCFA !','success');
+      loadDashboard();
+    },
+    onCancel: function(){
+      const txs2=getTransactions(); const idx=txs2.findIndex(t=>t.id===txId);
+      if(idx!==-1){ txs2.splice(idx,1); saveTransactions(txs2); }
+      showAlert('depositAlert','⚠️ Paiement annulé. Aucun montant débité.','warning');
+    }
+  });
+
+  // Créer un bouton LeekPay widget invisible avec le bon montant et le déclencher
+  const old=document.getElementById('_lp_btn'); if(old) old.remove();
+  const lpBtn=document.createElement('button');
+  lpBtn.id='_lp_btn';
+  lpBtn.setAttribute('data-leekpay-amount', amt);
+  lpBtn.setAttribute('data-leekpay-currency','XOF');
+  lpBtn.setAttribute('data-leekpay-key', LEEKPAY_API_KEY);
+  lpBtn.setAttribute('data-leekpay-description','Dépôt Indépendance Financière');
+  lpBtn.setAttribute('data-leekpay-email', u.email||'');
+  lpBtn.style.cssText='position:absolute;opacity:0;pointer-events:none;';
+  document.body.appendChild(lpBtn);
+  lpBtn.click();
 }
 
 function updateWithdrawPlaceholder(){
