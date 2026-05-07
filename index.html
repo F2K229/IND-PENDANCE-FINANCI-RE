@@ -746,7 +746,6 @@ const ADMIN_EMAIL = ADMIN_EMAILS[0];
 const ADMIN_PW    = 'Admin2003'; // mot de passe hérité admin1 (avant inscription)
 
 // ── LeekPay Config ──
-const LEEKPAY_API_URL = 'https://api.leekpay.net/v1'; // URL base LeekPay
 const LEEKPAY_API_KEY = 'pk_live_5MosLN0wFPDxYtlbWcS98dFXbuPim0Lk';
 
 const AFFILIATE_BONUS = 500;
@@ -759,17 +758,7 @@ const DEFAULT_PLANS = [
   {id:'vip',         name:'Parcelle VIP',       price:50000, daily:4500, icon:'👑', desc:'Le summum du rendement'},
 ];
 
-// Numéros masqués en base64
-const _n = {
-  mtn:     atob('KzIyOTAxOTcwMDAwMDA='),
-  moov:    atob('KzIyOTAxOTUwMDAwMDA='),
-  celtiis: atob('KzIyOTAxNDAwMDAwMDA=')
-};
-const _nomTitulaire = 'KOKOU Jos';
 
-let _selectedNetwork = null;
-let _currentDepositAmt = 0;
-let _isBeninUser = false;
 
 // ── EmailJS Init ──
 (function initEmailJS(){
@@ -796,40 +785,13 @@ async function sendEmail(type, toEmail, toName, params={}){
   } catch(e){ console.error('[EmailJS]',e); return false; }
 }
 
-// ── LeekPay Integration ──
+// ── LeekPay Retrait ──
+// Note : LeekPay ne propose pas d'API de payout automatique.
+// Les retraits sont approuvés manuellement par l'admin et marqués comme tels.
 async function leekPaySendPayment(txId, amount, network, phoneNumber, holderName, userEmail, userName) {
-  try {
-    // Appel à l'API LeekPay pour envoyer le paiement automatiquement
-    const response = await fetch(`${LEEKPAY_API_URL}/disbursements`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${LEEKPAY_API_KEY}`,
-        'X-Idempotency-Key': txId
-      },
-      body: JSON.stringify({
-        amount: amount,
-        currency: 'XOF',           // FCFA
-        recipient_phone: phoneNumber,
-        recipient_name: holderName,
-        recipient_email: userEmail,
-        network: network,
-        reference: 'IF-RETRAIT-' + txId,
-        description: 'Retrait Indépendance Financière — ' + userName
-      })
-    });
-    const data = await response.json();
-    if (response.ok && (data.status === 'success' || data.status === 'pending' || data.id)) {
-      console.log('[LeekPay] Paiement initié:', data);
-      return { success: true, leekpayId: data.id || data.reference || txId };
-    } else {
-      console.error('[LeekPay] Erreur:', data);
-      return { success: false, error: data.message || 'Erreur inconnue LeekPay' };
-    }
-  } catch(e) {
-    console.error('[LeekPay] Exception:', e);
-    return { success: false, error: e.message };
-  }
+  // Simulation d'un retrait manuel approuvé (pas d'API payout LeekPay disponible)
+  console.log('[Retrait] Approuvé manuellement:', {txId, amount, network, phoneNumber, holderName});
+  return { success: true, leekpayId: 'MANUAL-'+txId };
 }
 
 // ── Storage ──
@@ -1578,7 +1540,7 @@ function loadAdmin(){
     const currentAdminIdx=getCurrentAdminIndex();
     const canApproveAdminW=isAdminW && currentAdminIdx !== t.requestedByAdmin;
     let statusBadge='';
-    if(t.status==='approved') statusBadge='<span class="badge badge-success">✅ Payé via LeekPay</span>';
+    if(t.status==='approved') statusBadge='<span class="badge badge-success">✅ Approuvé</span>';
     else if(t.status==='pending') statusBadge='<span class="badge badge-pending">⏳ En attente</span>';
     else if(t.status==='pending_admin_approval') statusBadge='<span class="badge" style="background:rgba(74,144,217,0.15);color:var(--accent)">🔐 Approbation admin requise</span>';
     else if(t.status==='processing') statusBadge='<span class="badge badge-pending">⚙️ Traitement LeekPay...</span>';
@@ -1654,9 +1616,9 @@ async function approveWithdrawal(txId){
       saveTransactions(txs2); fbSaveTx({...txs2[idx2]});
     }
     if(leekResult.success){
-      showToast('✅ Retrait admin de '+fmtMoney(t.amount)+' FCFA envoyé via LeekPay !','success');
+      showToast('✅ Retrait admin de '+fmtMoney(t.amount)+' FCFA approuvé ! Envoyez le paiement manuellement via Mobile Money.','success');
     } else {
-      showToast('⚠️ Approuvé mais erreur LeekPay : '+leekResult.error+'. Vérifiez votre tableau LeekPay.','warning');
+      showToast('⚠️ Erreur lors de l\'approbation. Réessayez.','warning');
     }
     loadAdmin(); return;
   }
@@ -1685,12 +1647,11 @@ async function approveWithdrawal(txId){
     saveTransactions(txs2); fbSaveTx({...txs2[idx2]});
   }
   if(leekResult.success){
-    // Envoi email de confirmation
     if(uidx!==-1){
       const sent=await sendEmail('withdrawal_confirm',users[uidx].email,users[uidx].firstname+' '+users[uidx].lastname,{amount:fmtMoney(t.amount),method:np[0]||'—',txId:t.id,date:fmtDate(t.date)});
       if(sent) console.log('[Email] Confirmation retrait envoyée');
     }
-    showToast('✅ Retrait de '+fmtMoney(t.amount)+' FCFA envoyé automatiquement via LeekPay !','success');
+    showToast('✅ Retrait de '+fmtMoney(t.amount)+' FCFA approuvé ! Envoyez le paiement via '+np[0]+' au '+np[1]+'.','success');
   } else {
     // Rembourser le solde si LeekPay a échoué
     if(uidx!==-1){
@@ -1823,30 +1784,6 @@ function deletePlanFromForm(){
   const id=document.getElementById('editPlanSelect').value; if(!id) return;
   deletePlan(id);
 }
-
-// ── LeekPay Webhook / Callback Handler ──
-// LeekPay peut rediriger vers cette page avec des paramètres de confirmation
-(function handleLeekPayCallback(){
-  const params=new URLSearchParams(window.location.search);
-  const status=params.get('status')||params.get('payment_status');
-  const ref=params.get('reference')||params.get('ref')||params.get('transaction_id');
-  if(!status||!ref) return;
-  if(status==='success'||status==='completed'||status==='paid'){
-    // Chercher la transaction correspondante
-    const txs=getTransactions();
-    // Chercher par leekpayId ou par référence dans la note
-    const idx=txs.findIndex(t=>t.leekpayId===ref||t.note?.includes(ref));
-    if(idx!==-1 && txs[idx].status==='pending' && txs[idx].type==='deposit'){
-      const t=txs[idx];
-      const users=getUsers(); const uidx=users.findIndex(u=>u.id===t.userId);
-      if(uidx!==-1){ users[uidx].balance=(users[uidx].balance||0)+t.amount; saveUsers(users); fbSaveUser(users[uidx]); }
-      txs[idx].status='approved'; saveTransactions(txs); fbSaveTx({...txs[idx],status:'approved'});
-      setTimeout(()=>showToast('✅ Dépôt de '+fmtMoney(t.amount)+' FCFA confirmé par LeekPay !','success'),1000);
-    }
-    // Nettoyer l'URL
-    const clean=window.location.href.split('?')[0]; window.history.replaceState({},document.title,clean);
-  }
-})();
 
 // ── Init ──
 (function init(){
