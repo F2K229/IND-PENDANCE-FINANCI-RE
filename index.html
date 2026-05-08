@@ -384,12 +384,26 @@ tr:last-child td{border-bottom:none}
           </div>
           <div class="form-group">
             <label class="form-label">Montant à déposer (FCFA)</label>
-            <input type="number" class="form-input" id="depositAmount" placeholder="Minimum 500 FCFA" min="500">
+            <input type="number" class="form-input" id="depositAmount" placeholder="Minimum 500 FCFA" min="500" oninput="updateLeekPayBtn()">
           </div>
           <div style="background:rgba(46,204,113,0.07);border:1px solid rgba(46,204,113,0.25);border-radius:8px;padding:11px 14px;margin-bottom:18px;font-size:0.82rem">
             <i class="fa fa-bolt" style="color:var(--accent2);margin-right:6px"></i>Votre solde est crédité <strong style="color:var(--text)">automatiquement</strong> dès confirmation du paiement LeekPay.
           </div>
-          <button class="btn btn-gold btn-block" onclick="submitDeposit()"><i class="fa fa-credit-card"></i> Payer avec LeekPay</button>
+          <!-- Vrai bouton LeekPay widget — reconnu par leekpay.js au chargement -->
+          <button
+            id="leekpayBtn"
+            data-leekpay-amount="500"
+            data-leekpay-currency="XOF"
+            data-leekpay-key="pk_live_5MosLN0wFPDxYtlbWcS98dFXbuPim0Lk"
+            data-leekpay-description="Dépôt Indépendance Financière"
+            class="btn btn-gold btn-block"
+            style="display:none">
+            <i class="fa fa-credit-card"></i> Payer avec LeekPay
+          </button>
+          <!-- Bouton visible qui valide le montant puis déclenche le vrai bouton LeekPay -->
+          <button class="btn btn-gold btn-block" id="depositVisibleBtn" onclick="submitDeposit()">
+            <i class="fa fa-credit-card"></i> Payer avec LeekPay
+          </button>
         </div>
       </div>
       <div class="tab-section" id="tab-withdraw">
@@ -1269,7 +1283,13 @@ function selectNetwork(net){ /* non utilisé — LeekPay gère tout */ }
 function launchUSSD(e){ /* non utilisé — LeekPay gère tout */ }
 function confirmUSSDPayment(){ /* non utilisé — LeekPay gère tout */ }
 
-// ── LeekPay Dépôt via Widget HTML (clé publique uniquement) ──
+// ── LeekPay Dépôt ──
+function updateLeekPayBtn(){
+  const amt=parseInt(document.getElementById('depositAmount').value)||0;
+  const btn=document.getElementById('leekpayBtn');
+  if(btn) btn.setAttribute('data-leekpay-amount', amt<500?500:amt);
+}
+
 function submitDeposit(){
   const amt=parseInt(document.getElementById('depositAmount').value);
   if(!amt||amt<500) return showAlert('depositAlert','Montant minimum : 500 FCFA.');
@@ -1277,47 +1297,47 @@ function submitDeposit(){
   const users=getUsers(); const u=users.find(x=>x.id===cu.id)||cu;
 
   if(typeof LeekPay === 'undefined')
-    return showAlert('depositAlert','❌ Impossible de charger LeekPay. Vérifiez votre connexion internet.','error');
+    return showAlert('depositAlert','❌ LeekPay non chargé. Vérifiez votre connexion internet.','error');
 
-  const txId=genId();
-
-  // Enregistrer la transaction en pending
-  const tx={id:txId, userId:cu.id, type:'deposit', amount:amt, status:'pending',
-    note:'LeekPay | en attente', leekpayId:null, date:Date.now()};
-  const txs=getTransactions(); txs.push(tx); saveTransactions(txs); fbSaveTx(tx);
-
-  // Callbacks : succès → créditer solde immédiatement ; annulation → supprimer tx
-  LeekPay.configure({
-    onSuccess: function(data){
-      const txs2=getTransactions(); const idx=txs2.findIndex(t=>t.id===txId);
-      if(idx!==-1){ txs2[idx].status='approved'; txs2[idx].leekpayId=data.payment_id||data.id||txId; saveTransactions(txs2); fbSaveTx({...txs2[idx]}); }
-      const usrs=getUsers(); const uidx=usrs.findIndex(x=>x.id===cu.id);
-      if(uidx!==-1){ usrs[uidx].balance=(usrs[uidx].balance||0)+amt; saveUsers(usrs); setCurrentUser(usrs[uidx]); fbSaveUser(usrs[uidx]); }
-      document.getElementById('depositAmount').value='';
-      showAlert('depositAlert','✅ Dépôt de '+fmtMoney(amt)+' FCFA confirmé ! Solde crédité.','success');
-      showToast('💰 Solde crédité de '+fmtMoney(amt)+' FCFA !','success');
-      loadDashboard();
-    },
-    onCancel: function(){
-      const txs2=getTransactions(); const idx=txs2.findIndex(t=>t.id===txId);
-      if(idx!==-1){ txs2.splice(idx,1); saveTransactions(txs2); }
-      showAlert('depositAlert','⚠️ Paiement annulé. Aucun montant débité.','warning');
-    }
-  });
-
-  // Créer un bouton LeekPay widget invisible avec le bon montant et le déclencher
-  const old=document.getElementById('_lp_btn'); if(old) old.remove();
-  const lpBtn=document.createElement('button');
-  lpBtn.id='_lp_btn';
+  // Mettre à jour le montant sur le vrai bouton LeekPay
+  const lpBtn=document.getElementById('leekpayBtn');
+  if(!lpBtn) return showAlert('depositAlert','Erreur technique. Rechargez la page.','error');
   lpBtn.setAttribute('data-leekpay-amount', amt);
-  lpBtn.setAttribute('data-leekpay-currency','XOF');
-  lpBtn.setAttribute('data-leekpay-key', LEEKPAY_API_KEY);
-  lpBtn.setAttribute('data-leekpay-description','Dépôt Indépendance Financière');
   lpBtn.setAttribute('data-leekpay-email', u.email||'');
-  lpBtn.style.cssText='position:absolute;opacity:0;pointer-events:none;';
-  document.body.appendChild(lpBtn);
+
+  // Préparer les callbacks AVANT de cliquer
+  // La transaction n'est créée QU'AU SUCCÈS du paiement
+  window._pendingDepositAmt = amt;
+  window._pendingDepositUserId = cu.id;
+
+  // Cliquer le vrai bouton LeekPay (déjà reconnu par leekpay.js)
   lpBtn.click();
 }
+
+// Callbacks LeekPay — appelés par le widget
+window.leekpayOnSuccess = function(data){
+  const amt = window._pendingDepositAmt;
+  const userId = window._pendingDepositUserId;
+  if(!amt||!userId) return;
+  // Créer la transaction seulement maintenant
+  const txId=genId();
+  const tx={id:txId, userId, type:'deposit', amount:amt, status:'approved',
+    note:'LeekPay | Confirmé', leekpayId:data?.payment_id||data?.id||txId, date:Date.now()};
+  const txs=getTransactions(); txs.push(tx); saveTransactions(txs); fbSaveTx(tx);
+  // Créditer le solde immédiatement
+  const usrs=getUsers(); const uidx=usrs.findIndex(x=>x.id===userId);
+  if(uidx!==-1){ usrs[uidx].balance=(usrs[uidx].balance||0)+amt; saveUsers(usrs); setCurrentUser(usrs[uidx]); fbSaveUser(usrs[uidx]); }
+  window._pendingDepositAmt=null; window._pendingDepositUserId=null;
+  document.getElementById('depositAmount').value='';
+  showAlert('depositAlert','✅ Dépôt de '+fmtMoney(amt)+' FCFA confirmé ! Solde crédité.','success');
+  showToast('💰 Solde crédité de '+fmtMoney(amt)+' FCFA !','success');
+  loadDashboard();
+};
+
+window.leekpayOnCancel = function(){
+  window._pendingDepositAmt=null; window._pendingDepositUserId=null;
+  showAlert('depositAlert','⚠️ Paiement annulé. Aucun montant débité.','warning');
+};
 
 function updateWithdrawPlaceholder(){
   const net=document.getElementById('withdrawNetwork').value;
@@ -1786,6 +1806,15 @@ function deletePlanFromForm(){
 }
 
 // ── Init ──
+// Configurer les callbacks LeekPay dès que le script est prêt
+window.addEventListener('load', function(){
+  if(typeof LeekPay !== 'undefined' && LeekPay.configure){
+    LeekPay.configure({
+      onSuccess: function(data){ if(window.leekpayOnSuccess) window.leekpayOnSuccess(data); },
+      onCancel:  function(){     if(window.leekpayOnCancel)  window.leekpayOnCancel(); }
+    });
+  }
+});
 (function init(){
   if(!localStorage.getItem('IF_plans')) savePlans(DEFAULT_PLANS);
   if(!getUsers().length){
